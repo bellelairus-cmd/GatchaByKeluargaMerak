@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <title>Doorprize Gacha Persistent</title>
+  <style>
+    body { font-family: Arial, sans-serif; text-align: center; margin: 30px; background: #f7f9fc; }
+    h1 { color: #2c3e50; }
+
+    .slide { display: none; }
+    .active { display: block; }
+
+    #adminPanel {
+      padding: 20px;
+      background: #ecf0f1;
+      border-radius: 10px;
+      text-align: left;
+      width: 80%;
+      max-width: 700px;
+      margin: auto;
+    }
+
+    textarea { width: 100%; height: 100px; margin-top: 5px; }
+    button {
+      margin-top: 10px;
+      padding: 10px 15px;
+      border: none;
+      background: #3498db;
+      color: white;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: 0.3s;
+    }
+    button:hover { background: #2980b9; }
+
+    #container { margin-top: 20px; }
+    .box {
+      display: inline-block;
+      width: 80px; height: 80px;
+      margin: 10px;
+      background: #3498db;
+      color: white;
+      font-size: 20px;
+      line-height: 80px;
+      cursor: pointer;
+      border-radius: 10px;
+      transition: transform 0.3s ease;
+    }
+    .box:hover { background: #2980b9; transform: scale(1.1); }
+    .shake { animation: shake 0.5s; }
+    @keyframes shake {
+      0% { transform: rotate(0deg); }
+      25% { transform: rotate(5deg); }
+      50% { transform: rotate(-5deg); }
+      75% { transform: rotate(5deg); }
+      100% { transform: rotate(0deg); }
+    }
+    .opened { background: #e74c3c !important; color: #fff; }
+
+    #mappingTable {
+      margin-top: 20px;
+      border-collapse: collapse;
+      width: 100%;
+    }
+    #mappingTable th, #mappingTable td {
+      border: 1px solid #7f8c8d;
+      padding: 8px;
+      text-align: center;
+    }
+    #mappingTable th {
+      background: #95a5a6;
+      color: white;
+    }
+
+    /* Popup */
+    .popup {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.7);
+      display: none;
+      justify-content: center;
+      align-items: center;
+      z-index: 1000;
+    }
+    .popup-content {
+      background: white;
+      padding: 30px;
+      border-radius: 12px;
+      text-align: center;
+      font-size: 28px;
+      font-weight: bold;
+      color: #2c3e50;
+      transform: scale(0.5);
+      opacity: 0;
+      animation: popupAnim 0.6s forwards;
+    }
+    @keyframes popupAnim {
+      0% { transform: scale(0.5); opacity: 0; }
+      70% { transform: scale(1.2); opacity: 1; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+    .close-btn {
+      margin-top: 20px;
+      padding: 8px 16px;
+      border: none;
+      background: #e74c3c;
+      color: white;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <h1>🎉 Doorprize Gacha 🎉</h1>
+
+  <!-- Slide 1: Admin -->
+  <div id="slideAdmin" class="slide active">
+    <div id="adminPanel">
+      <label for="namaInput">Masukkan Nama + Jumlah Slot (format: Nama=Jumlah, pisahkan dengan koma atau enter):</label><br>
+      <textarea id="namaInput">Andi=20, Budi=5, Citra=3</textarea><br>
+      <button onclick="resetGacha()">🔄 Buat Kotak Undian</button>
+      <button onclick="toAudience()">➡️ Pindah ke Tampilan Penonton</button>
+      <button onclick="downloadMapping()">⬇️ Download Mapping (CSV)</button>
+
+      <!-- Tabel mapping nama -->
+      <div id="mappingArea"></div>
+    </div>
+  </div>
+
+  <!-- Slide 2: Audience -->
+  <div id="slideAudience" class="slide">
+    <h2>Silakan pilih kotak untuk membuka hadiah!</h2>
+    <div id="container"></div>
+    <button onclick="toAdmin()">⬅️ Kembali ke Admin</button>
+  </div>
+
+  <!-- Popup -->
+  <div id="popup" class="popup">
+    <div class="popup-content">
+      <div id="popupText"></div>
+      <button class="close-btn" onclick="closePopup()">Tutup</button>
+    </div>
+  </div>
+
+  <script>
+    let slotPeserta = [];
+    let sisaSlot = [];
+
+    function saveData() {
+      localStorage.setItem("slotPeserta", JSON.stringify(slotPeserta));
+      localStorage.setItem("sisaSlot", JSON.stringify(sisaSlot));
+      localStorage.setItem("namaInput", document.getElementById("namaInput").value);
+    }
+
+    function loadData() {
+      let savedPeserta = localStorage.getItem("slotPeserta");
+      let savedSisa = localStorage.getItem("sisaSlot");
+      let savedInput = localStorage.getItem("namaInput");
+
+      if (savedPeserta && savedSisa) {
+        slotPeserta = JSON.parse(savedPeserta);
+        sisaSlot = JSON.parse(savedSisa);
+        if (savedInput) document.getElementById("namaInput").value = savedInput;
+        renderKotak();
+        tampilkanMapping();
+      }
+    }
+
+    function shuffle(array) {
+      for (let i = array.length - 1; i > 0; i--) {
+        let j = Math.floor(Math.random() * (i + 1));
+        [array[i], array[j]] = [array[j], array[i]];
+      }
+      return array;
+    }
+
+    function resetGacha() {
+      let input = document.getElementById("namaInput").value;
+      slotPeserta = [];
+
+      // parsing Nama=Jumlah
+      input.split(/,|\n/).forEach(line => {
+        line = line.trim();
+        if (line) {
+          let parts = line.split("=");
+          let nama = parts[0].trim();
+          let jumlah = parseInt(parts[1]) || 1;
+          for (let i = 0; i < jumlah; i++) {
+            slotPeserta.push(nama);
+          }
+        }
+      });
+
+      // acak posisi slot
+      slotPeserta = shuffle(slotPeserta);
+      sisaSlot = [...slotPeserta];
+
+      renderKotak();
+      tampilkanMapping();
+      saveData();
+    }
+
+    function renderKotak() {
+      let container = document.getElementById("container");
+      container.innerHTML = "";
+
+      for (let i = 1; i <= slotPeserta.length; i++) {
+        let div = document.createElement("div");
+        div.className = "box";
+        div.textContent = i;
+
+        if (sisaSlot[i-1] === null) {
+          div.classList.add("opened");
+          div.style.cursor = "not-allowed";
+        } else {
+          div.onclick = () => bukaKotak(div, i-1);
+        }
+
+        container.appendChild(div);
+      }
+    }
+
+    function bukaKotak(div, indexKotak) {
+      if (sisaSlot[indexKotak] === null) {
+        alert("Kotak ini sudah dibuka!");
+        return;
+      }
+
+      div.classList.add("shake");
+      setTimeout(() => {
+        div.classList.remove("shake");
+
+        let namaTerpilih = slotPeserta[indexKotak];
+        sisaSlot[indexKotak] = null;
+
+        div.classList.add("opened");
+        div.style.cursor = "not-allowed";
+        div.onclick = null;
+
+        saveData(); // simpan perubahan
+
+        // tampilkan popup hadiah
+        showPopup("🎊 Terpilih: " + namaTerpilih + " 🎊");
+      }, 500);
+    }
+
+    function showPopup(text) {
+      const popup = document.getElementById("popup");
+      const popupText = document.getElementById("popupText");
+      popup.style.display = "flex";
+      popupText.textContent = text;
+    }
+
+    function closePopup() {
+      document.getElementById("popup").style.display = "none";
+    }
+
+    function tampilkanMapping() {
+      let mappingHTML = "<h3>📋 Letak Nama dalam Kotak (setelah acak):</h3>";
+      mappingHTML += "<table id='mappingTable'><tr><th>No Kotak</th><th>Nama</th></tr>";
+
+      slotPeserta.forEach((nama, index) => {
+        mappingHTML += `<tr><td>${index + 1}</td><td>${nama}</td></tr>`;
+      });
+
+      mappingHTML += "</table>";
+      document.getElementById("mappingArea").innerHTML = mappingHTML;
+    }
+
+    function downloadMapping() {
+      let csvContent = "No Kotak,Nama\n";
+      slotPeserta.forEach((nama, index) => {
+        csvContent += (index + 1) + "," + nama + "\n";
+      });
+
+      let blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      let url = URL.createObjectURL(blob);
+      let a = document.createElement("a");
+      a.href = url;
+      a.download = "mapping_doorprize.csv";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
+
+    function toAudience() {
+      document.getElementById("slideAdmin").classList.remove("active");
+      document.getElementById("slideAudience").classList.add("active");
+    }
+
+    function toAdmin() {
+      document.getElementById("slideAudience").classList.remove("active");
+      document.getElementById("slideAdmin").classList.add("active");
+    }
+
+    // load data ketika halaman dibuka
+    window.onload = loadData;
+  </script>
+</body>
+</html>
+ 
+ 
